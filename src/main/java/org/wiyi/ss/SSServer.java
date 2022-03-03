@@ -22,7 +22,7 @@ import org.wiyi.ss.net.codec.SSUDPSessionCodec;
 import org.wiyi.ss.net.tcp.SSServerTCPRelayHandler;
 import org.wiyi.ss.net.udp.SSServerUDPRelayHandler;
 
-public class SSServer implements Server{
+public class SSServer implements Server {
     private static final Logger logger = LoggerFactory.getLogger(SSServer.class);
 
     private final SSConfig config;
@@ -78,34 +78,47 @@ public class SSServer implements Server{
         return isRunning;
     }
 
-    private class SSServerTCPServer implements Server{
+    /**
+     * 该内部类涉及到netty的使用【重点】
+     */
+    private class SSServerTCPServer implements Server {
+        // 创建两个线程组，一个用于监听请求，一个用于处理逻辑
         private EventLoopGroup acceptor = new NioEventLoopGroup();
         private EventLoopGroup worker = new NioEventLoopGroup();
 
         @Override
         public void open() {
+            // ServerBootstrap是一个引导类，其对象的作用是引导服务器的启动工作
             ServerBootstrap bootstrap = new ServerBootstrap();
-            bootstrap.group(acceptor,worker).channel(NioServerSocketChannel.class)
-                    .option(ChannelOption.SO_RCVBUF,32 * 1024)
+            // .group是配置上面两个线程组的角色，也就是谁去监听谁去处理读写。上面只是创建了两个线程组，并没有实际使用
+            // .channel是配置服务端的IO模型，上面代码配置的是NIO模型。也可以配置为BIO，如OioServerSocketChannel.class
+            bootstrap.group(acceptor, worker).channel(NioServerSocketChannel.class)
+                    // .option是给服务端的channel设置属性
+                    // 设置接收缓冲区大小为32k
+                    .option(ChannelOption.SO_RCVBUF, 32 * 1024)
+                    // 设置请求队列的容量为128
                     .option(ChannelOption.SO_BACKLOG, 128)
+                    // 设置数据即时传输，不合并数据包
                     .option(ChannelOption.TCP_NODELAY, true)
-                    .childOption(ChannelOption.SO_KEEPALIVE,true)
+                    // 设置连接的心跳检测
+                    .childOption(ChannelOption.SO_KEEPALIVE, true)
+                    // 配置每个连接的业务逻辑
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) throws Exception {
-                            SSCipher cipher = SSCipherFactories.newInstance(config.getPassword(),config.getMethod());
+                            SSCipher cipher = SSCipherFactories.newInstance(config.getPassword(), config.getMethod());
                             ChannelPipeline pipe = ch.pipeline();
-
+                            // 可能对应SS协议的三个阶段
                             pipe.addLast(new SSCipherCodec(cipher));
                             pipe.addLast(new SSTCPAddressDecoder());
                             pipe.addLast(new SSServerTCPRelayHandler(config));
                         }
                     });
             try {
-                logger.info("ss-server listen on tcp {}:{}",config.getServer(),config.getServerPort());
-                bootstrap.bind(config.getServer(),config.getServerPort()).sync();
+                logger.info("ss-server listen on tcp {}:{}", config.getServer(), config.getServerPort());
+                bootstrap.bind(config.getServer(), config.getServerPort()).sync();
             } catch (InterruptedException e) {
-                logger.error(e.getMessage(),e);
+                logger.error(e.getMessage(), e);
             }
         }
 
@@ -141,16 +154,16 @@ public class SSServer implements Server{
                     .handler(new ChannelInitializer<NioDatagramChannel>() {
                         @Override
                         protected void initChannel(NioDatagramChannel ctx) throws Exception {
-                            SSCipher cipher = SSCipherFactories.newInstance(config.getPassword(),config.getMethod());
+                            SSCipher cipher = SSCipherFactories.newInstance(config.getPassword(), config.getMethod());
                             ChannelPipeline pipe = ctx.pipeline();
                             pipe.addLast(new SSUDPSessionCodec());
-                            pipe.addLast(new SSCipherCodec(cipher,false));
+                            pipe.addLast(new SSCipherCodec(cipher, false));
                             pipe.addLast(new SSAddressingCodec());
                             pipe.addLast(new SSServerUDPRelayHandler());
                         }
                     });
             try {
-                logger.info("ss-server listen on udp {}:{}",config.getServer(),config.getServerPort());
+                logger.info("ss-server listen on udp {}:{}", config.getServer(), config.getServerPort());
                 boot.bind(config.getServer(), config.getServerPort()).sync();
             } catch (InterruptedException e) {
                 logger.error(e.getMessage(), e);
